@@ -90,7 +90,7 @@
                   too-many-in-interval? (> (count user-set) max-in-interval)
                   time-since-last-req (when min-difference
                                         (- now (last user-set)))]
-              (= 0
+              (zero?
                  (calc-result now
                               user-set
                               too-many-in-interval?
