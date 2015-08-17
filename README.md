@@ -14,20 +14,21 @@ Leiningen:
 
 ### Basic
 
-Create an in-memory rate limiter with max 100 requsts in 1 seconds:
+Create an in-memory rate limiter with maximum 100 requsts in 1 seconds:
 
 ```clj
 (require '[clj-rate-limiter.core :as r])
 (def limiter (r/create
 	           (r/rate-limiter-factory :memory
-	                                   :interval 1000 	                                   :max-in-interval 100)))
+	                                   :interval 1000 
+	                                   :max-in-interval 100)))
 	                                   
 (println (allow? limiter "key1"))	 
 (println (allow? limiter "key2"))	                                  
 ```
 
-The `:interval` sets the time window unit in millseconds, and `:max-in-interval` sets the maximum requests in a time window, and `:memory` sets the rate limiter store in memory.
-After the limiter was created, you can use `(allow? limiter key)` to test if the request can be passed.We use the string key to present the type of the request.
+The `:interval` sets the time window unit in millseconds, and `:max-in-interval` sets the maximum requests in a time window, and `:memory` make the rate limiter store requests in memory.
+After the limiter is created, you can use `(allow? limiter key)` to test if the request can be passed.The string key is present the type of the request.A group requests of the same key are rate limited by the limiter.
 
 In a cluster, you may want to created a redis-backed limiter:
 
@@ -41,9 +42,10 @@ In a cluster, you may want to created a redis-backed limiter:
                    
 (def limiter (r/create
 	           (r/rate-limiter-factory :redis
-	           							:redis redis
-	           							:namespace "APIs"
-	                                   :interval 1000 	                                   :max-in-interval 100)))
+	                                   :redis redis
+	                                   :namespace "APIs"
+	                                   :interval 1000
+	                                   :max-in-interval 100)))
 ```
 
 You have to provide a redis spec and pool, and you can set the namespace prefix of the request keys.
@@ -56,8 +58,8 @@ You can set the minimum time in millseconds between requests by ":min-difference
 ```clj
 (def limiter (r/create
 	           (r/rate-limiter-factory :redis
-	           							:redis redis
-	           							:namespace "APIs"
+	                                   :redis redis
+	                                   :namespace "APIs"
 	                                   :interval 1000
 	                                   :min-difference 1 
 	                                   :max-in-interval 100)))
@@ -72,10 +74,10 @@ If you set `:flood-threshold` value(a long value),when crreunt requests number i
 ```clj
 (def limiter (r/create
 	           (r/rate-limiter-factory :redis
-	           							:redis redis
-	           							:namespace "APIs"
+	                                   :redis redis
+	                                   :namespace "APIs"
 	                                   :interval 1000
-	                                   ::flood-threshold 5
+	                                   :flood-threshold 5
 	                                   :max-in-interval 100)))
 ```
 
