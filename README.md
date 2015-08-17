@@ -53,7 +53,7 @@ You have to provide a redis spec and pool, and you can set the namespace prefix 
 
 ### min-difference
 
-You can set the minimum time in millseconds between requests by ":min-difference" option,default is zero.
+You can set the minimum time in millseconds between requests by `:min-difference` option,default is zero.
 
 ```clj
 (def limiter (r/create
@@ -67,9 +67,9 @@ You can set the minimum time in millseconds between requests by ":min-difference
 
 ## Protection for flooding requests
 
-The rate limiter will still adds the request to backend storage even if the requests are too many. It may consume too much memory,so i provide a option `:flood-threshold` for such situation.
+The rate limiter will still add the request to backend storage even if the requests are too many. It may consume too much memory in backend storage,so i provide a option `:flood-threshold` for such situation.
 
-If you set `:flood-threshold` value(a long value),when crreunt requests number in storage is greater or equalt to `(* flood-threshold max-in-interval)`, then the limiter will not adds the new request to backend storage until next time window.
+If you set `:flood-threshold` value(a long value),when current requests number in storage is greater or equalt to `(* flood-threshold max-in-interval)`, then the limiter will not add the new request to backend storage until next time window.
 
 ```clj
 (def limiter (r/create
@@ -84,7 +84,7 @@ If you set `:flood-threshold` value(a long value),when crreunt requests number i
 
 ## License
 
-Copyright © 2015 FIXME
+Copyright © 2015 dennis zhuang
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.

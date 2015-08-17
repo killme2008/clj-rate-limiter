@@ -67,4 +67,26 @@
       (assert-rate-limiter r)
       (= 51
          (car/wcar redis
-                   (car/zcard "clj-rate-key1"))))))
+                   (car/zcard "clj-rate-key1")))
+      (Thread/sleep 1500)
+      (assert-rate-limiter r))))
+
+(deftest test-min-difference
+  (testing "test flood threshold."
+    (let [rf (rate-limiter-factory :redis
+                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
+                                           :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
+                                                  :min-idle (.availableProcessors (Runtime/getRuntime))
+                                                  :max-wait 5000}}
+                                   :interval 1000
+                                   :min-difference 10
+                                   :flood-threshold 5
+                                   :max-in-interval 10)
+          r (create rf)]
+      (is (allow? r "key1"))
+      (is (not (allow? r "key1")))
+      (is (allow? r "key2"))
+      (Thread/sleep 15)
+      (is (allow? r "key1"))
+      (is (not (allow? r "key1")))
+      (is (allow? r "key2")))))

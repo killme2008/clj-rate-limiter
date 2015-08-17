@@ -35,7 +35,7 @@
 
 (defn- calc-result [now first-req too-many-in-interval? time-since-last-req min-difference interval]
   (if (or too-many-in-interval?
-          (when min-difference
+          (when (and min-difference time-since-last-req)
             (< time-since-last-req (mills->nanos min-difference))))
     (long (Math/floor
            (min
@@ -78,7 +78,7 @@
                                 too-many-in-interval?
                                 (>= (count user-set)
                                     (* 3 max-in-interval)))
-                    time-since-last-req (when min-difference
+                    time-since-last-req (when (and min-difference (last user-set))
                                           (- now (last user-set)))]
                 (when flood-req?
                   (swap! flood-cache
@@ -135,7 +135,7 @@
                                      too-many-in-interval?
                                      (>= total
                                          (* flood-threshold max-in-interval)))
-                     time-since-last-req (when min-difference
+                     time-since-last-req (when (and min-difference last-req)
                                            (- now (Long/valueOf last-req)))]
                 (when flood-req?
                   (swap! flood-cache
