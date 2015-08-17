@@ -23,8 +23,8 @@ Create an in-memory rate limiter with maximum 100 requsts in 1 seconds:
 	                                   :interval 1000 
 	                                   :max-in-interval 100)))
 	                                   
-(println (allow? limiter "key1"))	 
-(println (allow? limiter "key2"))	                                  
+(println (r/allow? limiter "key1"))	 
+(println (r/allow? limiter "key2"))	                                  
 ```
 
 The `:interval` sets the time window unit in millseconds, and `:max-in-interval` sets the maximum requests in a time window, and `:memory` make the rate limiter store requests in memory.
