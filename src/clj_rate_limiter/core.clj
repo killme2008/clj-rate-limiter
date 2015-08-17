@@ -31,7 +31,7 @@
   `(* 1000000 ~m))
 
 (definline nanos->mills [n]
-  `(/ ~n 1000000))
+  `(long (/ ~n 1000000)))
 
 (defn- calc-result [now first-req too-many-in-interval? time-since-last-req min-difference interval]
   (if (or too-many-in-interval?

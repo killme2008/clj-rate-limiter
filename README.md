@@ -9,7 +9,7 @@ It's transformed from [rolling-rate-limiter](https://github.com/classdojo/rollin
 Leiningen:
 
 ```clj
-[clj-rate-limiter "0.1.0"]
+[clj-rate-limiter "0.1.1"]
 ```
 
 ### Basic
@@ -24,7 +24,8 @@ Create an in-memory rate limiter with maximum 100 requsts in 1 seconds:
 	                                   :max-in-interval 100)))
 	                                   
 (println (r/allow? limiter "key1"))	 
-(println (r/allow? limiter "key2"))	                                  
+(println (r/allow? limiter "key2"))	
+(count (filter true? (repeatedly 1000 #(r/allow? limiter "key3")))) ;;should be 100                            
 ```
 
 The `:interval` sets the time window unit in millseconds, and `:max-in-interval` sets the maximum requests in a time window, and `:memory` make the rate limiter store requests in memory.
