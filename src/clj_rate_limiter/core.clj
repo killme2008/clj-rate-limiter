@@ -77,7 +77,7 @@
                                 flood-threshold
                                 too-many-in-interval?
                                 (>= (count user-set)
-                                    (* 3 max-in-interval)))
+                                    (* flood-threshold max-in-interval)))
                     time-since-last-req (when (and min-difference (last user-set))
                                           (- now (last user-set)))]
                 (when flood-req?
