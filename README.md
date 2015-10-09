@@ -9,7 +9,7 @@ It's transformed from [rolling-rate-limiter](https://github.com/classdojo/rollin
 Leiningen:
 
 ```clj
-[clj-rate-limiter "0.1.1"]
+[clj-rate-limiter "0.1.2"]
 ```
 
 ### Basic
