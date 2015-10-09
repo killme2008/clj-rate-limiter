@@ -70,7 +70,7 @@ You can set the minimum time in millseconds between requests by `:min-difference
 
 The rate limiter will still add the request to backend storage even if the requests are too many. It may consume too much memory in backend storage,so i provide a option `:flood-threshold` for such situation.
 
-If you set `:flood-threshold` value(a long value),when current requests number in storage is greater or equalt to `(* flood-threshold max-in-interval)`, then the limiter will not add the new request to backend storage until next time window.
+If you set `:flood-threshold` value(a long value),when current requests number in storage is greater or equal to `(* flood-threshold max-in-interval)`, then the limiter will not add the new request to backend storage until next time window.
 
 ```clj
 (def limiter (r/create
