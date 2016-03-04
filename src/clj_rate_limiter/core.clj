@@ -9,7 +9,11 @@
 (defprotocol RateLimiter
   "Rate limiter for clojure."
   (allow? [this id]
-    "Return true if the request can be allowd by rate limiter."))
+          "Return true if the request can be allowd by rate limiter.")
+  (permit? [this id]
+           "Return {:result true} if the request
+            can be permited by rate limiter,
+            Otherwise returns {:result false :current requests}."))
 
 (defprotocol RateLimiterFactory
   "A factory to create RateLimiter"
@@ -57,7 +61,9 @@
           lock (Object.)
           storage (atom {})]
       (reify RateLimiter
-        (allow? [_ id]
+        (allow? [this id]
+          (:result (permit? this id)))
+        (permit? [_ id]
           ;;It must not be in flood cache
           (when-not (and
                      flood-threshold
@@ -91,7 +97,10 @@
                   (swap! storage update-in [id] (fn [s] (conj (or s []) now)))
                   (swap! timeouts assoc id (set-timeout (fn []
                                                           (swap! storage dissoc id)) (:interval opts)))
-                  ((complement pos?) ret))))))))))
+                  (let [ret ((complement pos?) ret)]
+                    (if ret
+                      {:result ret}
+                      {:result ret :current (count user-set)})))))))))))
 
 (defn- exec-batch [redis pool key before now interval]
   (car/wcar {:spec redis
@@ -114,9 +123,11 @@
                   flood-threshold
                   pool]
            :or {namespace "clj-rate"}} opts
-           flood-cache (ttl-cache interval)]
+          flood-cache (ttl-cache interval)]
       (reify RateLimiter
-        (allow? [_ id]
+        (allow? [this id]
+          (:result (permit? this id)))
+        (permit? [_ id]
           (when-not (and flood-threshold
                          (cache/lookup @flood-cache (or id "")))
             (let [id (or id "")
@@ -130,23 +141,26 @@
                                                                        before
                                                                        now
                                                                        interval)
-                     too-many-in-interval? (>= total max-in-interval)
-                     flood-req? (and flood-threshold
-                                     too-many-in-interval?
-                                     (>= total
-                                         (* flood-threshold max-in-interval)))
-                     time-since-last-req (when (and min-difference last-req)
-                                           (- now (Long/valueOf last-req)))]
+                    too-many-in-interval? (>= total max-in-interval)
+                    flood-req? (and flood-threshold
+                                    too-many-in-interval?
+                                    (>= total
+                                        (* flood-threshold max-in-interval)))
+                    time-since-last-req (when (and min-difference last-req)
+                                          (- now (Long/valueOf last-req)))]
                 (when flood-req?
                   (swap! flood-cache
                          assoc id true))
-                ((complement pos?)
-                 (calc-result now
-                              (when first-req
-                                (Long/valueOf first-req))
-                              too-many-in-interval?
-                              time-since-last-req
-                              min-difference interval))))))))))
+                (let [ret ((complement pos?)
+                           (calc-result now
+                                        (when first-req
+                                          (Long/valueOf first-req))
+                                        too-many-in-interval?
+                                        time-since-last-req
+                                        min-difference interval))]
+                  (if ret
+                    {:result ret}
+                    {:result ret :current total}))))))))))
 
 (defn rate-limiter-factory
   "Returns a rate limiter factory by type and options.
