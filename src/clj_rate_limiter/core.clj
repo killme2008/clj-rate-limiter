@@ -13,7 +13,9 @@
   (permit? [this id]
            "Return {:result true} if the request
             can be permited by rate limiter,
-            Otherwise returns {:result false :current requests}."))
+            Otherwise returns {:result false :current requests}.")
+  (remove-permit [this id ts]
+                 "Remove the permit by id and permit timestamp."))
 
 (defprotocol RateLimiterFactory
   "A factory to create RateLimiter"
@@ -72,11 +74,13 @@
                   now (System/nanoTime)
                   key (format "%s-%s" namespace id)
                   before (- now (mills->nanos interval))]
-              (when-let [t (get @timeouts id)]
+              (when-let [t (get @timeouts key)]
                 (clear-timeout t))
               (let [user-set (locking lock
-                               (let [new-set (filter #(> % before) (get @storage id))]
-                                 (swap! storage assoc id new-set)
+                               (let [new-set (apply sorted-set
+                                                    (when-let [s (get @storage key)]
+                                                      (subseq s > before)))]
+                                 (swap! storage assoc key new-set)
                                  new-set))
                     too-many-in-interval? (>= (count user-set) max-in-interval)
                     flood-req? (and
@@ -94,13 +98,19 @@
                                        too-many-in-interval?
                                        time-since-last-req
                                        min-difference interval)]
-                  (swap! storage update-in [id] (fn [s] (conj (or s []) now)))
-                  (swap! timeouts assoc id (set-timeout (fn []
-                                                          (swap! storage dissoc id)) (:interval opts)))
+                  (swap! storage update-in [key] (fn [s] (conj (or s (sorted-set)) now)))
+                  (swap! timeouts assoc key (set-timeout (fn []
+                                                           (swap! storage dissoc key)) (:interval opts)))
                   (let [ret ((complement pos?) ret)]
                     (if ret
-                      {:result ret}
-                      {:result ret :current (count user-set)})))))))))))
+                      {:result ret :ts now}
+                      {:result ret :ts now :current (count user-set)})))))))
+        (remove-permit [_ id ts]
+          (let [id (or id "")
+                key (format "%s-%s" namespace id)]
+            (when ts
+              (swap! storage update-in [key]
+                     (fn [s] (disj (or s (sorted-set)) ts))))))))))
 
 (defn- exec-batch [redis pool key before now interval]
   (car/wcar {:spec redis
@@ -159,8 +169,15 @@
                                         time-since-last-req
                                         min-difference interval))]
                   (if ret
-                    {:result ret}
-                    {:result ret :current total}))))))))))
+                    {:result ret :ts now}
+                    {:result ret :ts now :current total}))))))
+        (remove-permit [_ id ts]
+          (let [id (or id "")
+                key (format "%s-%s" namespace id)]
+            (when ts
+              (car/wcar {:spec redis
+                         :pool pool}
+                        (car/zrem key ts)))))))))
 
 (defn rate-limiter-factory
   "Returns a rate limiter factory by type and options.

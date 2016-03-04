@@ -11,26 +11,44 @@
 (defn clear-redis-fixture [f]
   (car/wcar redis
             (car/del "clj-rate-key1")
-            (car/del "clj-rate-key2"))
+            (car/del "clj-rate-key2")
+            (car/del "clj-rate-key3")
+            (car/del "clj-rate-key4"))
   (f))
 
 (use-fixtures :each clear-redis-fixture)
 
 (defn- assert-rate-limiter [r]
-  (=
-   10
-   (count (filter true? (repeatedly 100 #(allow? r "key1")))))
+  (is (=
+       10
+       (count (filter true? (repeatedly 100 #(allow? r "key1"))))))
   (is (allow? r "key2"))
-  (=
-   9
-   (count (filter true? (repeatedly 100 #(allow? r "key1")))))
+  (is (=
+       9
+       (count (filter true? (repeatedly 100 #(allow? r "key2"))))))
+  (is (=
+       10
+       (count (filter true? (map :result (repeatedly 100 #(permit? r "key3")))))))
   (Thread/sleep 1050)
-  (=
-   10
-   (count (filter true? (repeatedly 100 #(allow? r "key1")))))
-  (=
-   10
-   (count (filter true? (repeatedly 100 #(allow? r "key2"))))))
+  (is (=
+       10
+       (count (filter true? (repeatedly 100 #(allow? r "key1"))))))
+  (is (=
+       10
+       (count (filter true? (repeatedly 100 #(allow? r "key2"))))))
+  (let [results (repeatedly 100 #(permit? r "key3"))]
+    (is (=
+         10
+         (count (filter true? (map :result results)))))))
+
+(defn- assert-remove-permit [r]
+  (let [{:keys [ts result]} (permit? r "key4")]
+    (is (true? result))
+    (let [{:keys [ts result]} (permit? r "key4")]
+      (is (not result))
+      (remove-permit r "key4" ts))
+    (remove-permit r "key4" ts)
+    (is (allow? r "key4"))))
 
 (deftest test-memory-limiter
   (testing "Test memory-based rate limiter"
@@ -38,7 +56,12 @@
                                    :interval 1000
                                    :max-in-interval 10)
           r (create rf)]
-      (assert-rate-limiter r))))
+      (assert-rate-limiter r))
+     (let [rf (rate-limiter-factory :memory
+                                   :interval 1000
+                                   :max-in-interval 1)
+          r (create rf)]
+      (assert-remove-permit r))))
 
 (deftest test-redis-limiter
   (testing "Test redis-based rate limiter"
@@ -48,10 +71,16 @@
                                    :max-in-interval 10)
           r (create rf)]
       (assert-rate-limiter r)
-      (=
-       100
-       (car/wcar redis
-                 (car/zcard "clj-rate-key1"))))))
+      (is (=
+           100
+           (car/wcar redis
+                     (car/zcard "clj-rate-key1")))))
+    (let [rf (rate-limiter-factory :redis
+                                   :redis redis
+                                   :interval 1000
+                                   :max-in-interval 1)
+          r (create rf)]
+      (assert-remove-permit r))))
 
 (deftest test-flood-threshold
   (testing "test flood threshold."
@@ -65,9 +94,9 @@
                                    :max-in-interval 10)
           r (create rf)]
       (assert-rate-limiter r)
-      (= 51
-         (car/wcar redis
-                   (car/zcard "clj-rate-key1")))
+      (is (= 51
+             (car/wcar redis
+                       (car/zcard "clj-rate-key1"))))
       (Thread/sleep 1500)
       (assert-rate-limiter r))))
 
