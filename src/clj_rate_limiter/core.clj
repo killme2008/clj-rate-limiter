@@ -196,24 +196,25 @@
 
 (comment
   (defn- benchmark []
-    (let [rf (rate-limiter-factory :redis
-                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-                                           :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                                                  :min-idle (.availableProcessors (Runtime/getRuntime))
-                                                  :max-wait 5000}}
-                                   :flood-threshold 10
-                                   :interval 1000
-                                   :max-in-interval 1000)
-          r (create rf)
-          cl (java.util.concurrent.CountDownLatch. 100)]
-      (time
-       (do
-         (dotimes [n 150]
-           (->
-            (fn []
-              (dotimes [m 1000]
-                (allow? r (mod m 20)))
-              (.countDown cl))
-            (Thread.)
-            (.start)))
-         (.await cl))))))
+   (let [rf (rate-limiter-factory :redis
+                                  :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
+                                          :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
+                                                 :min-idle (.availableProcessors (Runtime/getRuntime))
+                                                 :max-wait 5000}}
+                                  :flood-threshold 10
+                                  :interval 1000
+                                  :max-in-interval 1000)
+         r (create rf)
+         cl (java.util.concurrent.CountDownLatch. 100)]
+     (time
+      (do
+        (dotimes [n 150]
+          (->
+           (fn []
+             (dotimes [m 10000]
+               (let [{:keys [ts result]} (allow? r (mod m 20))]
+                 (remove-permit r (mod m 20) ts)))
+             (.countDown cl))
+           (Thread.)
+           (.start)))
+        (.await cl))))))
