@@ -1,4 +1,4 @@
-(defproject clj-rate-limiter "0.1.3"
+(defproject clj-rate-limiter "0.1.4"
   :description "Rate limiter for clojure that supports a rolling window, either in-memory or backed by redis"
   :url "https://github.com/killme2008/clj-rate-limiter"
   :license {:name "Eclipse Public License"
