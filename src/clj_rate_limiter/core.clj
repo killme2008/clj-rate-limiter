@@ -103,7 +103,7 @@
                                                            (swap! storage dissoc key)) (:interval opts)))
                   (let [ret ((complement pos?) ret)]
                     (if ret
-                      {:result ret :ts now}
+                      {:result ret :ts now :current (count user-set)}
                       {:result ret :ts now :current (count user-set)})))))))
         (remove-permit [_ id ts]
           (let [id (or id "")
@@ -157,19 +157,19 @@
                                     (>= total
                                         (* flood-threshold max-in-interval)))
                     time-since-last-req (when (and min-difference last-req)
-                                          (- now (Long/valueOf last-req)))]
+                                          (- now (Long/valueOf ^String last-req)))]
                 (when flood-req?
                   (swap! flood-cache
                          assoc id true))
                 (let [ret ((complement pos?)
                            (calc-result now
                                         (when first-req
-                                          (Long/valueOf first-req))
+                                          (Long/valueOf ^String first-req))
                                         too-many-in-interval?
                                         time-since-last-req
                                         min-difference interval))]
                   (if ret
-                    {:result ret :ts now}
+                    {:result ret :ts now :current total}
                     {:result ret :ts now :current total}))))))
         (remove-permit [_ id ts]
           (let [id (or id "")
