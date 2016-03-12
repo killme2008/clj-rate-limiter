@@ -77,40 +77,49 @@
               (when-let [t (get @timeouts key)]
                 (clear-timeout t))
               (let [user-set (locking lock
-                               (let [new-set (apply sorted-set
-                                                    (when-let [s (get @storage key)]
-                                                      (subseq s > before)))]
+                               (let [new-set (into {} (->> key
+                                                           (get @storage)
+                                                           (filter #(-> % first (> before)))))]
                                  (swap! storage assoc key new-set)
                                  new-set))
-                    too-many-in-interval? (>= (count user-set) max-in-interval)
+                    total (count user-set)
+                    user-set (filter #(-> % second not) user-set)
+                    current (count user-set)
+                    too-many-in-interval? (>= current max-in-interval)
                     flood-req? (and
                                 flood-threshold
                                 too-many-in-interval?
-                                (>= (count user-set)
+                                (>= current
                                     (* flood-threshold max-in-interval)))
-                    time-since-last-req (when (and min-difference (last user-set))
-                                          (- now (last user-set)))]
+                    time-since-last-req (when (and min-difference
+                                                   (first (last user-set)))
+                                          (- now (first (last user-set))))]
                 (when flood-req?
                   (swap! flood-cache
                          assoc id true))
                 (let [ret (calc-result now
-                                       (first user-set)
+                                       (ffirst user-set)
                                        too-many-in-interval?
                                        time-since-last-req
                                        min-difference interval)]
-                  (swap! storage update-in [key] (fn [s] (conj (or s (sorted-set)) now)))
+                  (swap! storage update-in [key] (fn [s] (assoc s
+                                                                now false)))
                   (swap! timeouts assoc key (set-timeout (fn []
                                                            (swap! storage dissoc key)) (:interval opts)))
                   (let [ret ((complement pos?) ret)]
                     (if ret
-                      {:result ret :ts now :current (count user-set)}
-                      {:result ret :ts now :current (count user-set)})))))))
+                      {:result ret :ts now :current current :total total}
+                      {:result ret :ts now :current current :total total})))))))
         (remove-permit [_ id ts]
           (let [id (or id "")
                 key (format "%s-%s" namespace id)]
             (when ts
               (swap! storage update-in [key]
-                     (fn [s] (disj (or s (sorted-set)) ts))))))))))
+                     (fn [s] (assoc s ts true))))))))))
+
+
+(defn- release-key [key]
+  (format "%s-rs" key))
 
 (defn- exec-batch [redis pool key before now interval]
   (car/wcar {:spec redis
@@ -118,6 +127,7 @@
             (car/multi)
             (car/zremrangebyscore key 0 before)
             (car/zcard key)
+            (car/zcard (release-key key))
             (car/zrangebyscore key "-inf" "+inf"
                                "LIMIT" 0 1)
             (car/zrevrangebyscore key "+inf" "-inf"
@@ -144,13 +154,14 @@
                   now (System/nanoTime)
                   key (format "%s-%s" namespace id)
                   before (- now (mills->nanos interval))]
-              (let [[_ _ _ _ _ _ _
-                     [_ total [first-req] [last-req] _ _]] (exec-batch redis
-                                                                       pool
-                                                                       key
-                                                                       before
-                                                                       now
-                                                                       interval)
+              (let [[_ _ _ _ _ _ _ _
+                     [_ total rs-total
+                      [first-req] [last-req] _ _]] (exec-batch redis
+                                                               pool
+                                                               key
+                                                               before
+                                                               now
+                                                               interval)
                     too-many-in-interval? (>= total max-in-interval)
                     flood-req? (and flood-threshold
                                     too-many-in-interval?
@@ -169,15 +180,24 @@
                                         time-since-last-req
                                         min-difference interval))]
                   (if ret
-                    {:result ret :ts now :current total}
-                    {:result ret :ts now :current total}))))))
+                    {:result ret :ts now
+                     :current total :total (+ total rs-total)}
+                    {:result ret :ts now
+                     :current total :total (+ total rs-total)}))))))
         (remove-permit [_ id ts]
           (let [id (or id "")
-                key (format "%s-%s" namespace id)]
+                key (format "%s-%s" namespace id)
+                before (- ts (mills->nanos interval))]
             (when ts
               (car/wcar {:spec redis
                          :pool pool}
-                        (car/zrem key ts)))))))))
+                        (car/multi)
+                        (car/zrem key ts)
+                        (car/zremrangebyscore key 0 before)
+                        (car/zadd (release-key key) ts ts)
+                        (car/expire (release-key key)
+                                    (long (Math/ceil (/ interval 1000))))
+                        (car/exec)))))))))
 
 (defn rate-limiter-factory
   "Returns a rate limiter factory by type and options.
@@ -196,25 +216,33 @@
 
 (comment
   (defn- benchmark []
-   (let [rf (rate-limiter-factory :redis
-                                  :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-                                          :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                                                 :min-idle (.availableProcessors (Runtime/getRuntime))
-                                                 :max-wait 5000}}
-                                  :flood-threshold 10
-                                  :interval 1000
-                                  :max-in-interval 1000)
-         r (create rf)
-         cl (java.util.concurrent.CountDownLatch. 100)]
-     (time
-      (do
-        (dotimes [n 150]
-          (->
-           (fn []
-             (dotimes [m 10000]
-               (let [{:keys [ts result]} (allow? r (mod m 20))]
-                 (remove-permit r (mod m 20) ts)))
-             (.countDown cl))
-           (Thread.)
-           (.start)))
-        (.await cl))))))
+    (let [rf (rate-limiter-factory :redis
+                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
+                                           :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
+                                                  :min-idle (.availableProcessors (Runtime/getRuntime))
+                                                  :max-wait 5000}}
+                                   :flood-threshold 10
+                                   :interval 1000
+                                   :max-in-interval 1000)
+          r (create rf)
+          cost (atom {:sum 0 :times 0})
+          ts 100
+          cl (java.util.concurrent.CountDownLatch. ts)]
+      (time
+       (do
+         (dotimes [n ts]
+           (->
+            (fn []
+              (dotimes [m 10000]
+                (let [{:keys [ts result total current]} (permit? r (mod m 20))]
+                  (when (> total current)
+                    (swap! cost (fn [{:keys [sum times]} s]
+                                  {:sum (+ sum s)
+                                   :times (inc times)})
+                           (- total current)))
+                  (remove-permit r (mod m 20) ts)))
+              (.countDown cl))
+            (Thread.)
+            (.start)))
+         (.await cl)
+         (println @cost))))))
