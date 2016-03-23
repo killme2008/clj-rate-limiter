@@ -187,13 +187,13 @@
         (remove-permit [_ id ts]
           (let [id (or id "")
                 key (format "%s-%s" namespace id)
-                before (- ts (mills->nanos interval))]
-            (when ts
+                before (- (System/nanoTime) (mills->nanos interval))]
+            (when (and ts (pos? ts))
               (car/wcar {:spec redis
                          :pool pool}
                         (car/multi)
                         (car/zrem key ts)
-                        (car/zremrangebyscore key 0 before)
+                        (car/zremrangebyscore (release-key key) 0 before)
                         (car/zadd (release-key key) ts ts)
                         (car/expire (release-key key)
                                     (long (Math/ceil (/ interval 1000))))
@@ -216,33 +216,46 @@
 
 (comment
   (defn- benchmark []
-    (let [rf (rate-limiter-factory :redis
-                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-                                           :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                                                  :min-idle (.availableProcessors (Runtime/getRuntime))
-                                                  :max-wait 5000}}
-                                   :flood-threshold 10
-                                   :interval 1000
-                                   :max-in-interval 1000)
-          r (create rf)
-          cost (atom {:sum 0 :times 0})
-          ts 100
-          cl (java.util.concurrent.CountDownLatch. ts)]
-      (time
-       (do
-         (dotimes [n ts]
-           (->
-            (fn []
-              (dotimes [m 10000]
-                (let [{:keys [ts result total current]} (permit? r (mod m 20))]
-                  (when (> total current)
-                    (swap! cost (fn [{:keys [sum times]} s]
-                                  {:sum (+ sum s)
-                                   :times (inc times)})
-                           (- total current)))
-                  (remove-permit r (mod m 20) ts)))
-              (.countDown cl))
-            (Thread.)
-            (.start)))
-         (.await cl)
-         (println @cost))))))
+   (let [rf (rate-limiter-factory :redis
+                                  :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
+                                          :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
+                                                 :min-idle (.availableProcessors (Runtime/getRuntime))
+                                                 :max-wait 5000}}
+                                  :flood-threshold 10
+                                  :interval 1000
+                                  :max-in-interval 100000)
+         r (create rf)
+         cost (atom {:total 0
+                     :current 0
+                     :max_total 0
+                     :max_concurrent 0
+                     :times 0})
+         ts 100
+         cl (java.util.concurrent.CountDownLatch. ts)]
+     (time
+      (do
+        (dotimes [n ts]
+          (->
+           (fn []
+             (dotimes [m 10000]
+               (let [{:keys [ts result total current]} (permit? r (mod m 1))]
+                 (when result
+                   (swap! cost (fn [{:keys [total current
+                                            times max_total max_concurrent]} t c]
+                                 {:total (+ total t)
+                                  :current (+ current c)
+                                  :max_total (if (< max_total t)
+                                               t
+                                               max_total)
+                                  :max_concurrent (if (< max_concurrent c)
+                                                    c
+                                                    max_concurrent)
+                                  :times (inc times)})
+                          total
+                          current))
+                 (remove-permit r (mod m 1) ts)))
+             (.countDown cl))
+           (Thread.)
+           (.start)))
+        (.await cl)
+        (println @cost))))))

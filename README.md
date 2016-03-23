@@ -9,7 +9,7 @@ It's transformed from [rolling-rate-limiter](https://github.com/classdojo/rollin
 Leiningen:
 
 ```clj
-[clj-rate-limiter "0.1.3"]
+[clj-rate-limiter "0.1.5"]
 ```
 
 ### Basic
@@ -20,12 +20,12 @@ Create an in-memory rate limiter with maximum 100 requsts in 1 seconds:
 (require '[clj-rate-limiter.core :as r])
 (def limiter (r/create
 	           (r/rate-limiter-factory :memory
-	                                   :interval 1000 
+	                                   :interval 1000
 	                                   :max-in-interval 100)))
-	                                   
-(println (r/allow? limiter "key1"))	 
-(println (r/allow? limiter "key2"))	
-(count (filter true? (repeatedly 1000 #(r/allow? limiter "key3")))) ;;should be 100                            
+
+(println (r/allow? limiter "key1"))
+(println (r/allow? limiter "key2"))
+(count (filter true? (repeatedly 1000 #(r/allow? limiter "key3")))) ;;should be 100
 ```
 
 The `:interval` sets the time window unit in millseconds, and `:max-in-interval` sets the maximum requests in a time window, and `:memory` make the rate limiter store requests in memory.
@@ -34,13 +34,13 @@ After the limiter is created, you can use `(allow? limiter key)` to test if the 
 In a cluster, you may want to created a redis-backed limiter:
 
 ```clj
-;;redis spec and pool as decribed in 
+;;redis spec and pool as decribed in
 ;;https://github.com/ptaoussanis/carmine
 (def redis {:spec {:host "localhost" :port 6379 :timeout 5000}
             :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
                    :min-idle (.availableProcessors (Runtime/getRuntime))
                    :max-wait 5000}})
-                   
+
 (def limiter (r/create
 	           (r/rate-limiter-factory :redis
 	                                   :redis redis
@@ -62,7 +62,7 @@ You can set the minimum time in millseconds between requests by `:min-difference
 	                                   :redis redis
 	                                   :namespace "APIs"
 	                                   :interval 1000
-	                                   :min-difference 1 
+	                                   :min-difference 1
 	                                   :max-in-interval 100)))
 ```
 
