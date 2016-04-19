@@ -121,7 +121,7 @@
 (defn- release-key [key]
   (format "%s-rs" key))
 
-(defn- exec-batch [redis pool key before now interval]
+(defn- exec-batch [redis pool key before now expire-secs min-difference]
   (car/wcar {:spec redis
              :pool pool}
             (car/multi)
@@ -130,11 +130,20 @@
             (car/zcard (release-key key))
             (car/zrangebyscore key "-inf" "+inf"
                                "LIMIT" 0 1)
-            (car/zrevrangebyscore key "+inf" "-inf"
-                                  "LIMIT" 0 1)
+            (when min-difference
+              (car/zrevrangebyscore key "+inf" "-inf"
+                                    "LIMIT" 0 1))
             (car/zadd key now now)
-            (car/expire key (long (Math/ceil (/ interval 1000))))
+            (car/expire key expire-secs)
             (car/exec)))
+
+(defn- match-exec-ret [ret min-difference]
+  (if min-difference
+    (let [[_ total rs-total
+           [first-req] [last-req] _ _] (last ret)]
+      [total rs-total first-req last-req])
+    (let [[_ total rs-total [first-req] _ _] (last ret)]
+      [total rs-total first-req])))
 
 (deftype RedisRateLimiterFactory [opts]
   RateLimiterFactory
@@ -143,7 +152,8 @@
                   flood-threshold
                   pool]
            :or {namespace "clj-rate"}} opts
-          flood-cache (ttl-cache interval)]
+          flood-cache (ttl-cache interval)
+          expire-secs (long (Math/ceil (/ interval 1000)))]
       (reify RateLimiter
         (allow? [this id]
           (:result (permit? this id)))
@@ -154,14 +164,14 @@
                   now (System/nanoTime)
                   key (format "%s-%s" namespace id)
                   before (- now (mills->nanos interval))]
-              (let [[_ _ _ _ _ _ _ _
-                     [_ total rs-total
-                      [first-req] [last-req] _ _]] (exec-batch redis
-                                                               pool
-                                                               key
-                                                               before
-                                                               now
-                                                               interval)
+              (let [exec-ret (exec-batch redis
+                                         pool
+                                         key
+                                         before
+                                         now
+                                         expire-secs
+                                         min-difference)
+                    [total rs-total first-req last-req] (match-exec-ret exec-ret min-difference)
                     too-many-in-interval? (>= total max-in-interval)
                     flood-req? (and flood-threshold
                                     too-many-in-interval?
@@ -196,7 +206,7 @@
                         (car/zremrangebyscore (release-key key) 0 before)
                         (car/zadd (release-key key) ts ts)
                         (car/expire (release-key key)
-                                    (long (Math/ceil (/ interval 1000))))
+                                    expire-secs)
                         (car/exec)))))))))
 
 (defn rate-limiter-factory
