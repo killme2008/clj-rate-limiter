@@ -122,20 +122,21 @@
   (format "%s-rs" key))
 
 (defn- exec-batch [redis pool key before now expire-secs min-difference]
-  (car/wcar {:spec redis
-             :pool pool}
-            (car/multi)
-            (car/zremrangebyscore key 0 before)
-            (car/zcard key)
-            (car/zcard (release-key key))
-            (car/zrangebyscore key "-inf" "+inf"
-                               "LIMIT" 0 1)
-            (when min-difference
-              (car/zrevrangebyscore key "+inf" "-inf"
-                                    "LIMIT" 0 1))
-            (car/zadd key now now)
-            (car/expire key expire-secs)
-            (car/exec)))
+  ;(prn "now" redis)
+  ;(prn "nowpool:" redis)
+  (car/wcar redis
+            (do
+              (car/multi)
+              (car/zremrangebyscore key 0 before)
+              (car/zcard key)
+              (car/zcard (release-key key))
+              (car/zrangebyscore key "-inf" "+inf" "LIMIT" 0 1)
+              (when min-difference
+                (car/zrevrangebyscore key "+inf" "-inf" "LIMIT" 0 1))
+              (car/zadd key now now)
+              (car/expire key expire-secs)
+              (car/exec))
+            ))
 
 (defn- match-exec-ret [ret min-difference]
   (if min-difference
@@ -199,7 +200,7 @@
                 key (format "%s-%s" namespace id)
                 before (- (System/nanoTime) (mills->nanos interval))]
             (when (and ts (pos? ts))
-              (car/wcar {:spec redis
+              (car/wcar redis #_{:spec redis
                          :pool pool}
                         (car/multi)
                         (car/zrem key ts)
@@ -228,9 +229,7 @@
   (defn- benchmark []
    (let [rf (rate-limiter-factory :redis
                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-                                          :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                                                 :min-idle (.availableProcessors (Runtime/getRuntime))
-                                                 :max-wait 5000}}
+                                          :pool {}}
                                   :flood-threshold 10
                                   :interval 1000
                                   :max-in-interval 100000)

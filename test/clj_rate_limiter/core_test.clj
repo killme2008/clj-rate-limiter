@@ -2,12 +2,15 @@
   (:require [clojure.test :refer :all]
             [taoensso.carmine :as car]
             [clj-rate-limiter.core :refer :all]))
+(def redis-spec {:host "localhost" :port 6379 :timeout 5000})
+(def redis {:spec redis-spec :pool {}})
+(defmacro wcar* [& body] `(car/wcar redis ~@body))
 
-(def redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-            :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                   :min-idle (.availableProcessors (Runtime/getRuntime))
-                   :max-wait 5000}})
-
+(deftest test-redis-common
+  (testing "测试redis连接"
+    (is (= (car/wcar redis (car/set "haoe" 1222)) "OK"))
+    (is (= (wcar* (car/get "haoe")) "1222"))
+    ))
 (defn clear-redis-fixture [f]
   (car/wcar redis
             (car/del "clj-rate-key1")
@@ -85,10 +88,9 @@
 (deftest test-flood-threshold
   (testing "test flood threshold."
     (let [rf (rate-limiter-factory :redis
-                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-                                           :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                                                  :min-idle (.availableProcessors (Runtime/getRuntime))
-                                                  :max-wait 5000}}
+                                   :redis {:spec redis-spec
+                                           :pool {}
+                                           }
                                    :interval 1000
                                    :flood-threshold 5
                                    :max-in-interval 10)
@@ -103,10 +105,8 @@
 (deftest test-min-difference
   (testing "test flood threshold."
     (let [rf (rate-limiter-factory :redis
-                                   :redis {:spec {:host "localhost" :port 6379 :timeout 5000}
-                                           :pool {:max-active (* 3 (.availableProcessors (Runtime/getRuntime)))
-                                                  :min-idle (.availableProcessors (Runtime/getRuntime))
-                                                  :max-wait 5000}}
+                                   :redis {:spec redis-spec
+                                           :pool {}}
                                    :interval 1000
                                    :min-difference 10
                                    :flood-threshold 5
