@@ -211,14 +211,15 @@
         (remove-permit [_ id ts]
           (let [id (or id "")
                 key (format "%s-%s" namespace id)
-                before (- (System/currentTimeMillis) interval)]
+                now (System/currentTimeMillis)
+                before (- now interval)]
             (when (and ts (pos? ts))
               (car/wcar {:spec redis
                          :pool pool}
                         (car/multi)
                         (car/zrem key ts)
                         (car/zremrangebyscore (release-key key) 0 before)
-                        (car/zadd (release-key key) ts ts)
+                        (car/zadd (release-key key) now ts)
                         (car/expire (release-key key)
                                     expire-secs)
                         (car/exec)))))))))
