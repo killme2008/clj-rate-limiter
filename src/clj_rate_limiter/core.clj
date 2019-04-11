@@ -121,7 +121,7 @@
 (defn- release-key [key]
   (format "%s-rs" key))
 
-(defn- exec-batch [redis pool key val before now expire-secs min-difference]
+(defn- exec-batch [redis pool key stamp before now expire-secs min-difference]
   (car/wcar {:spec redis
              :pool pool}
             (car/multi)
@@ -133,7 +133,7 @@
             (when min-difference
               (car/zrevrangebyscore key "+inf" "-inf"
                                     "LIMIT" 0 1))
-            (car/zadd key now val)
+            (car/zadd key now stamp)
             (car/expire key expire-secs)
             (car/exec)))
 
