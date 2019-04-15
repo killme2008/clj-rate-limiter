@@ -121,7 +121,7 @@
 (defn- release-key [key]
   (format "%s-rs" key))
 
-(defn- exec-batch [redis pool key before now expire-secs min-difference]
+(defn- exec-batch [redis pool key stamp before now expire-secs min-difference]
   (car/wcar {:spec redis
              :pool pool}
             (car/multi)
@@ -133,7 +133,7 @@
             (when min-difference
               (car/zrevrangebyscore key "+inf" "-inf"
                                     "LIMIT" 0 1))
-            (car/zadd key now now)
+            (car/zadd key now stamp)
             (car/expire key expire-secs)
             (car/exec)))
 
@@ -144,6 +144,18 @@
       [total rs-total first-req last-req])
     (let [[_ total rs-total [first-req] _ _] (last ret)]
       [total rs-total first-req])))
+
+(defn- calc-result-in-millis [now first-req too-many-in-interval? time-since-last-req min-difference interval]
+  (if (or too-many-in-interval?
+          (when (and min-difference time-since-last-req)
+            (< time-since-last-req min-difference)))
+    (long (Math/floor
+            (min
+              (+ (- first-req now) interval)
+              (if min-difference
+                (- min-difference time-since-last-req)
+                (Double/MAX_VALUE)))))
+    0))
 
 (deftype RedisRateLimiterFactory [opts]
   RateLimiterFactory
@@ -161,12 +173,14 @@
           (when-not (and flood-threshold
                          (cache/lookup @flood-cache (or id "")))
             (let [id (or id "")
-                  now (System/nanoTime)
+                  stamp (System/nanoTime)
+                  now (System/currentTimeMillis)
                   key (format "%s-%s" namespace id)
-                  before (- now (mills->nanos interval))]
+                  before (- now interval)]
               (let [exec-ret (exec-batch redis
                                          pool
                                          key
+                                         stamp
                                          before
                                          now
                                          expire-secs
@@ -183,28 +197,29 @@
                   (swap! flood-cache
                          assoc id true))
                 (let [ret ((complement pos?)
-                           (calc-result now
-                                        (when first-req
-                                          (Long/valueOf ^String first-req))
-                                        too-many-in-interval?
-                                        time-since-last-req
-                                        min-difference interval))]
+                            (calc-result-in-millis now
+                                                   (when first-req
+                                                     (Long/valueOf ^String first-req))
+                                                   too-many-in-interval?
+                                                   time-since-last-req
+                                                   min-difference interval))]
                   (if ret
-                    {:result ret :ts now
+                    {:result ret :ts stamp
                      :current total :total (+ total rs-total)}
-                    {:result ret :ts now
+                    {:result ret :ts stamp
                      :current total :total (+ total rs-total)}))))))
         (remove-permit [_ id ts]
           (let [id (or id "")
                 key (format "%s-%s" namespace id)
-                before (- (System/nanoTime) (mills->nanos interval))]
+                now (System/currentTimeMillis)
+                before (- now interval)]
             (when (and ts (pos? ts))
               (car/wcar {:spec redis
                          :pool pool}
                         (car/multi)
                         (car/zrem key ts)
                         (car/zremrangebyscore (release-key key) 0 before)
-                        (car/zadd (release-key key) ts ts)
+                        (car/zadd (release-key key) now ts)
                         (car/expire (release-key key)
                                     expire-secs)
                         (car/exec)))))))))
